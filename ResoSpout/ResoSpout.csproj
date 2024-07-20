@@ -72,8 +72,9 @@
     <Reference Include="ProtoFluxBindings">
       <HintPath>..\..\..\..\..\Program Files (x86)\Steam\steamapps\common\Resonite\Resonite_Data\Managed\ProtoFluxBindings.dll</HintPath>
     </Reference>
-    <Reference Include="ResoniteModLoader">
-      <HintPath>..\..\..\..\..\Program Files (x86)\Steam\steamapps\common\Resonite\Libraries\ResoniteModLoader.dll</HintPath>
+    <Reference Include="ResoniteModLoader, Version=2.6.0.0, Culture=neutral, processorArchitecture=MSIL">
+      <SpecificVersion>False</SpecificVersion>
+      <HintPath>..\..\..\..\..\..\Program Files (x86)\Steam\steamapps\common\Resonite\Libraries\ResoniteModLoader.dll</HintPath>
     </Reference>
     <Reference Include="ResoniteModSettings">
       <HintPath>..\..\..\..\..\Program Files (x86)\Steam\steamapps\common\Resonite\rml_mods\ResoniteModSettings.dll</HintPath>

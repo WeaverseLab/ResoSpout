@@ -6,17 +6,10 @@ using ResoniteModLoader;
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Runtime.InteropServices;
-using System.Text;
-using System.Threading.Tasks;
-using System.Xml.Linq;
 using UnityEngine;
-using UnityEngine.Rendering;
 using UnityEngine.Rendering.PostProcessing;
 using UnityFrooxEngineRunner;
 using uOSC;
-using static FrooxEngine.MeshEmitter;
-using static UnityEngine.GraphicsBuffer;
 
 namespace ResoSpout
 {
@@ -27,201 +20,187 @@ namespace ResoSpout
         public override string Version => "0.0.1";
         public override string Link => "https://github.com/rassi0429/";
 
+        static UnityEngine.Vector3 _rot;
+        static int[] allowedHeight = { 1025, 1026, 1027 };
 
-        static System.IntPtr _plugin;
-        static UnityEngine.Texture2D _sharedTexture;
+        // Separate dictionaries for plugins and shared textures
+        static Dictionary<string, IntPtr> plugins = new Dictionary<string, IntPtr>();
+        static Dictionary<string, UnityEngine.Texture2D> sharedTextures = new Dictionary<string, UnityEngine.Texture2D>();
 
         public override void OnEngineInit()
         {
             Harmony harmony = new Harmony("dev.kokoa.saveexif");
             harmony.PatchAll();
-            // var ptr = _buffer.GetNativeTexturePtr();
-            // Msg(ptr);
-            // var eventdata = new EventData(p, _buffer.GetNativeTexturePtr());
-            //var _event = new EventKicker(new EventData(p, _buffer.GetNativeTexturePtr()));
 
-            //_sender = new Sender("test3", _buffer);
-        }   
+            Engine.Current.RunPostInit(() =>
+            {
+                Msg("RunPostInit");
+                Engine.Current.WorldManager.WorldAdded += (World w) =>
+                {
+                    Msg("world focused");
+                };
+            });
+        }
 
+        static string getNameFromTextureResolution(int width, int height)
+        {
+            return width.ToString() + "x" + height.ToString();
+        }
+
+        static IntPtr GetOrCreatePlugin(int width, int height)
+        {
+            string key = getNameFromTextureResolution(width, height);
+
+            if (!plugins.ContainsKey(key))
+            {
+                Msg($"Creating new plugin for resolution: {key}");
+                IntPtr plugin = PluginEntry.CreateSender(key, width, height);
+                if (plugin == IntPtr.Zero)
+                {
+                    Msg("Failed to create Spout sender");
+                    return IntPtr.Zero;
+                }
+
+                plugins.Add(key, plugin);
+                Msg($"Created new plugin for resolution: {key}");
+            }
+
+            return plugins[key];
+        }
+
+        static UnityEngine.Texture2D GetOrCreateSharedTexture(IntPtr plugin)
+        {
+            if (plugin == IntPtr.Zero)
+            {
+                return null;
+            }
+
+            // get key from plugins
+            string key = plugins.FirstOrDefault(x => x.Value == plugin).Key;
+
+            if (!sharedTextures.ContainsKey(key))
+            {
+                var ptr = PluginEntry.GetTexturePointer(plugin);
+                if (ptr != IntPtr.Zero)
+                {
+                    UnityEngine.Texture2D sharedTexture = UnityEngine.Texture2D.CreateExternalTexture(
+                        PluginEntry.GetTextureWidth(plugin),
+                        PluginEntry.GetTextureHeight(plugin),
+                        UnityEngine.TextureFormat.ARGB32, false, false, ptr
+                    );
+                    sharedTexture.hideFlags = HideFlags.DontSave;
+                    sharedTextures.Add(key, sharedTexture);
+                    Msg(key + " texture created");
+                }
+            }
+
+            return sharedTextures[key];
+        }
 
         [HarmonyPatch]
         class CameraPatch
         {
-
             static void SendRenderTexture(UnityEngine.RenderTexture source)
             {
-                // Plugin lazy initialization
-                if (_plugin == System.IntPtr.Zero)
+                IntPtr plugin = GetOrCreatePlugin(source.width, source.height);
+                Util.IssuePluginEvent(PluginEntry.Event.Update, plugin);
+                UnityEngine.Texture2D sharedTexture = GetOrCreateSharedTexture(plugin);
+
+
+
+                // UnityEngine.Texture2D tmpTexture = new UnityEngine.Texture2D(source.width, source.height, UnityEngine.TextureFormat.ARGB32, false);
+
+                if (plugin == IntPtr.Zero || sharedTexture == null)
                 {
-                    Msg("Spout not ready, creating sender");
-                    _plugin = PluginEntry.CreateSender("test", source.width, source.height);
-                    if (_plugin == System.IntPtr.Zero)
-                    {
-                        Msg("spout not ready");
-                        return;
-                    }// Spout may not be ready.
+                    Msg("Spout not ready or sharedTexture is null");
+                    return;
                 }
 
-                // Shared texture lazy initialization
-                if (_sharedTexture == null)
-                {
-                    Msg("sharedTexture is nulll");
-                    var ptr = PluginEntry.GetTexturePointer(_plugin);
-                    if (ptr != System.IntPtr.Zero)
-                    {
-                        _sharedTexture = UnityEngine.Texture2D.CreateExternalTexture(
-                            PluginEntry.GetTextureWidth(_plugin),
-                            PluginEntry.GetTextureHeight(_plugin),
-                            UnityEngine.TextureFormat.ARGB32, false, false, ptr
-                        );
-                        _sharedTexture.hideFlags = HideFlags.DontSave;
-                    } else
-                    {
-                        Msg("ptr is null");
-                    }
-                }
+                var tempRT = UnityEngine.RenderTexture.GetTemporary(sharedTexture.width, sharedTexture.height);
+                Graphics.Blit(source, tempRT, new Vector2(1.0f, -1.0f), new Vector2(0.0f, 1.0f));
 
-                // Shared texture update
-                if (_sharedTexture != null)
-                {
-                    var tempRT = UnityEngine.RenderTexture.GetTemporary
-                        (_sharedTexture.width, _sharedTexture.height);
-                    Graphics.Blit(source, tempRT, new Vector2(1.0f, -1.0f), new Vector2(0.0f, 1.0f));
-                    Graphics.CopyTexture(tempRT, _sharedTexture);
-                    UnityEngine.RenderTexture.ReleaseTemporary(tempRT);
-                }
+                // Graphics.CopyTexture(tempRT, tmpTexture);
+                // 真っ黒だったらコピーしない
+                // Msg(tmpTexture.GetPixel(0, 0));
+                //if (tmpTexture.GetPixel(0, 0) == new UnityEngine.Color(0, 0, 0, 1f))
+                //{
+                //    UnityEngine.RenderTexture.ReleaseTemporary(tempRT);
+                //    //release tmpTexture
+                //    UnityEngine.Object.Destroy(tmpTexture);
+                //    return;
+                //}
+
+                Graphics.CopyTexture(tempRT, sharedTexture);
+                UnityEngine.RenderTexture.ReleaseTemporary(tempRT);
+                // UnityEngine.Object.Destroy(tmpTexture);
+
+                // Util.IssuePluginEvent(PluginEntry.Event.Update, plugin);
             }
 
-            //[HarmonyPatch(typeof(CameraRenderEx), "OnPreRender")]
-            //[HarmonyPrefix]
-            [HarmonyPatch(typeof(CameraRenderEx), "OnPostRender")]
-            [HarmonyPrefix]
-            static void postfix(CameraRenderEx __instance)
+            [HarmonyPatch(typeof(CameraRenderEx), "OnPreCull")]
+            [HarmonyPostfix]
+            static void _prefix(CameraRenderEx __instance)
             {
-                
-                if(__instance.Camera.pixelHeight != 2160)
+                var cam = __instance.Camera;
+
+                if (!allowedHeight.Contains(cam.targetTexture.height))
                 {
                     return;
                 }
 
-                int num = 2048;
-                var tex = new UnityEngine.RenderTexture(num, num, 0);
-                tex.dimension = TextureDimension.Cube;
-                tex.Create();
+                if (cam.enabled == false)
+                {
+                    return;
+                }
 
-                var tmpPosition = __instance.Camera.gameObject.transform.position;
-                var tmpTargetTexture = __instance.Camera.targetTexture;
+                var gameObject = cam.gameObject;
+                var tmpRotation = gameObject.transform.rotation;
 
+                _rot += new UnityEngine.Vector3(0.0f, 0.1f, 0.0f);
 
-                __instance.Camera.gameObject.transform.position = new Vector3(0, 0, 0);
-
-
-                var rotation = Quaternion.identity;
-
-                var _material = Resources.Load<UnityEngine.Material>("EquirectangularProjection");
-                var shader = _material.shader;
-                var newMaterial = new UnityEngine.Material(shader);
-
-                newMaterial.EnableKeyword("FLIP");
-                newMaterial.SetTexture("_Cube", tex);
-                newMaterial.SetMatrix("_Rotation", Matrix4x4.TRS(Vector3.zero, rotation, Vector3.one));
-
-                UnityEngine.RenderTexture temporary = UnityEngine.RenderTexture.GetTemporary(num, num, 24, tex.format);
-                UnityEngine.RenderTexture active = UnityEngine.RenderTexture.active;
-
-
-                UnityEngine.RenderTexture.active = temporary;
-                __instance.Camera.fieldOfView = 90f;
-                __instance.Camera.targetTexture = temporary;
-                __instance.Camera.transform.eulerAngles = new Vector3(0.0f, -90f, 0.0f);
-                Msg(__instance.Camera.transform.eulerAngles.ToString());
-                __instance.Camera.Render();
-                UnityEngine.Graphics.CopyTexture((UnityEngine.Texture)temporary, 0, 0, (Texture)tex, 0, 0);
-
-                // UnityEngine.RenderTexture temporary2 = UnityEngine.RenderTexture.GetTemporary(num, num, 24, tex.format);
-                // __instance.Camera.targetTexture = temporary2;
-                __instance.Camera.transform.eulerAngles = new Vector3(0.0f, 90f, 0.0f);
-                Msg(__instance.Camera.transform.eulerAngles.ToString());
-                __instance.Camera.Render();
-                UnityEngine.Graphics.CopyTexture((Texture)temporary, 0, 0, (Texture)tex, 1, 0);
-
-                __instance.Camera.transform.eulerAngles = new Vector3(90f, 180f, 0.0f);
-                __instance.Camera.Render();
-                UnityEngine.Graphics.CopyTexture((Texture)temporary, 0, 0, (Texture)tex, 2, 0);
-
-                __instance.Camera.transform.eulerAngles = new Vector3(-90f, 180f, 0.0f);
-                Msg(__instance.Camera.transform.eulerAngles.ToString());
-                __instance.Camera.Render();
-                UnityEngine.Graphics.CopyTexture((Texture)temporary, 0, 0, (Texture)tex, 3, 0);
-
-                __instance.Camera.transform.eulerAngles = new Vector3(0.0f, 180f, 0.0f);
-                Msg(__instance.Camera.transform.eulerAngles.ToString());
-                __instance.Camera.Render();
-                UnityEngine.Graphics.CopyTexture((Texture)temporary, 0, 0, (Texture)tex, 4, 0);
-
-                __instance.Camera.transform.eulerAngles = new Vector3(0.0f, 0.0f, 0.0f);
-                Msg(__instance.Camera.transform.eulerAngles.ToString());
-                __instance.Camera.Render();
-                UnityEngine.Graphics.CopyTexture((Texture)temporary, 0, 0, (Texture)tex, 5, 0);
-
-                var renderTexture = new UnityEngine.RenderTexture(2048, 1024, 24);
-                renderTexture.dimension = UnityEngine.Rendering.TextureDimension.Tex2D;
-                Graphics.Blit((Texture)null, renderTexture, newMaterial);
-
-                SendRenderTexture(temporary);
-
-                renderTexture.Release();
-
+                var _prevContext = RenderHelper.CurrentRenderingContext;
+                RenderHelper.BeginRenderContext(RenderingContext.RenderToAsset);
                 
-                UnityEngine.RenderTexture.active = active;
-                UnityEngine.RenderTexture.ReleaseTemporary(temporary);
-                // UnityEngine.RenderTexture.ReleaseTemporary(temporary2);
-                
-                if (_plugin != System.IntPtr.Zero)
-                    Util.IssuePluginEvent(PluginEntry.Event.Update, _plugin);
+                var tmpCameraRenderTexture = cam.targetTexture;
+                var tempRenderTexture = UnityEngine.RenderTexture.GetTemporary(tmpCameraRenderTexture.width, tmpCameraRenderTexture.height, 24);
+                cam.targetTexture = tempRenderTexture;
+                cam.Render();
+
+                Msg("send render textures");
+                SendRenderTexture(tempRenderTexture);
+
+                gameObject.transform.rotation = tmpRotation;
+                cam.targetTexture = tmpCameraRenderTexture;
 
 
-                UnityEngine.Object.Destroy((UnityEngine.Object)tex);
-                Msg("onPrefix", __instance.Owner);
+                Msg("release temp");
+                UnityEngine.RenderTexture.ReleaseTemporary(tempRenderTexture);
 
-                __instance.Camera.gameObject.transform.position = tmpPosition;
-                __instance.Camera.targetTexture = tmpTargetTexture;
+                Msg("prev context");
+                RenderHelper.BeginRenderContext(_prevContext.Value);
 
-                return;
+                Msg("begin plugin issues");
+                //foreach (var p in plugins)
+                //{
+                //    try { 
+                //        Msg(p.Key + " " + p.Value);
+                //        Util.IssuePluginEvent(PluginEntry.Event.Update, p.Value);
+                //    }
+                //    catch (Exception e)
+                //    {
+                //        Msg(e.Message);
+                //    }
+                //}
             }
 
             [HarmonyPatch(typeof(PostProcessLayer), "OnRenderImage")]
-            [HarmonyPostfix]
-            static void postfix(PostProcessLayer __instance, UnityEngine.RenderTexture dst)
+            [HarmonyPrefix]
+            static void _postfix(PostProcessLayer __instance, UnityEngine.RenderTexture src, UnityEngine.RenderTexture dst)
             {
-                if(dst.height != 2160)
+                foreach (var p in plugins)
                 {
-                    return;
+                    Util.IssuePluginEvent(PluginEntry.Event.Update, p.Value);
                 }
-
-                var connector = __instance.gameObject.GetComponent<CameraRenderEx>();
-                // var camera = __instance.gameObject.GetComponent<UnityEngine.Camera>();
-
-                if (connector != null)
-                {
-                    var c = connector.Owner;
-
-                    var cameras = connector.Owner.World.RootSlot.GetComponents<FrooxEngine.Camera>();
-
-
-                    var hoge = cameras.Find(camera => camera.Connector == c);
-                    if (hoge != null)
-                    {
-                        Msg("カメラ発見！");
-                    }
-
-                }
-
-                // SendRenderTexture(dst);
-                //if (_plugin != System.IntPtr.Zero)
-                //    Util.IssuePluginEvent(PluginEntry.Event.Update, _plugin);
-
-                // return true;
             }
         }
     }
