@@ -26,10 +26,11 @@ namespace ResoSpout
         // Separate dictionaries for plugins and shared textures
         static Dictionary<string, IntPtr> plugins = new Dictionary<string, IntPtr>();
         static Dictionary<string, UnityEngine.Texture2D> sharedTextures = new Dictionary<string, UnityEngine.Texture2D>();
+        static Dictionary<string, UnityEngine.RenderTexture> tmpTextures = new Dictionary<string, UnityEngine.RenderTexture>();
 
         public override void OnEngineInit()
         {
-            Harmony harmony = new Harmony("dev.kokoa.saveexif");
+            Harmony harmony = new Harmony("dev.kokoa.resospout");
             harmony.PatchAll();
 
             Engine.Current.RunPostInit(() =>
@@ -119,22 +120,8 @@ namespace ResoSpout
                 var tempRT = UnityEngine.RenderTexture.GetTemporary(sharedTexture.width, sharedTexture.height);
                 Graphics.Blit(source, tempRT, new Vector2(1.0f, -1.0f), new Vector2(0.0f, 1.0f));
 
-                // Graphics.CopyTexture(tempRT, tmpTexture);
-                // 真っ黒だったらコピーしない
-                // Msg(tmpTexture.GetPixel(0, 0));
-                //if (tmpTexture.GetPixel(0, 0) == new UnityEngine.Color(0, 0, 0, 1f))
-                //{
-                //    UnityEngine.RenderTexture.ReleaseTemporary(tempRT);
-                //    //release tmpTexture
-                //    UnityEngine.Object.Destroy(tmpTexture);
-                //    return;
-                //}
-
                 Graphics.CopyTexture(tempRT, sharedTexture);
                 UnityEngine.RenderTexture.ReleaseTemporary(tempRT);
-                // UnityEngine.Object.Destroy(tmpTexture);
-
-                // Util.IssuePluginEvent(PluginEntry.Event.Update, plugin);
             }
 
             [HarmonyPatch(typeof(CameraRenderEx), "OnPreCull")]
@@ -158,45 +145,60 @@ namespace ResoSpout
 
                 _rot += new UnityEngine.Vector3(0.0f, 0.1f, 0.0f);
 
+                // gameObject.transform.rotation = UnityEngine.Quaternion.Euler(_rot);
+
                 var _prevContext = RenderHelper.CurrentRenderingContext;
                 RenderHelper.BeginRenderContext(RenderingContext.RenderToAsset);
                 
                 var tmpCameraRenderTexture = cam.targetTexture;
-                var tempRenderTexture = UnityEngine.RenderTexture.GetTemporary(tmpCameraRenderTexture.width, tmpCameraRenderTexture.height, 24);
+
+
+
+                UnityEngine.RenderTexture tempRenderTexture = null;
+                if(tmpTextures.ContainsKey(getNameFromTextureResolution(tmpCameraRenderTexture.width, tmpCameraRenderTexture.height)))
+                {
+                    Msg(cam.targetTexture.width + "x" + cam.targetTexture.height + " already exists");
+                    tempRenderTexture = tmpTextures[getNameFromTextureResolution(tmpCameraRenderTexture.width, tmpCameraRenderTexture.height)];
+                } else
+                {
+                    Msg("create new render texture " + getNameFromTextureResolution(tmpCameraRenderTexture.width, tmpCameraRenderTexture.height));
+                    tempRenderTexture = UnityEngine.RenderTexture.GetTemporary(tmpCameraRenderTexture.width, tmpCameraRenderTexture.height, 24);
+                    tmpTextures.Add(getNameFromTextureResolution(tempRenderTexture.width, tempRenderTexture.height), tempRenderTexture);
+                }
+                
                 cam.targetTexture = tempRenderTexture;
+                cam.nearClipPlane = 0.01f;
                 cam.Render();
 
-                Msg("send render textures");
-                SendRenderTexture(tempRenderTexture);
+                // Msg("send render textures");
+                // SendRenderTexture(tempRenderTexture);
 
                 gameObject.transform.rotation = tmpRotation;
                 cam.targetTexture = tmpCameraRenderTexture;
 
 
-                Msg("release temp");
-                UnityEngine.RenderTexture.ReleaseTemporary(tempRenderTexture);
+                // Msg("release temp (nothing)");
+                // UnityEngine.RenderTexture.ReleaseTemporary(tempRenderTexture);
 
-                Msg("prev context");
+                // Msg("prev context");
                 RenderHelper.BeginRenderContext(_prevContext.Value);
-
-                Msg("begin plugin issues");
-                //foreach (var p in plugins)
-                //{
-                //    try { 
-                //        Msg(p.Key + " " + p.Value);
-                //        Util.IssuePluginEvent(PluginEntry.Event.Update, p.Value);
-                //    }
-                //    catch (Exception e)
-                //    {
-                //        Msg(e.Message);
-                //    }
-                //}
             }
 
             [HarmonyPatch(typeof(PostProcessLayer), "OnRenderImage")]
             [HarmonyPrefix]
             static void _postfix(PostProcessLayer __instance, UnityEngine.RenderTexture src, UnityEngine.RenderTexture dst)
             {
+                if (!allowedHeight.Contains(src.height))
+                {
+                    return;
+                }
+                // Msg("OnRenderImage");
+                var key = getNameFromTextureResolution(src.width, src.height);
+                if (tmpTextures.ContainsKey(key))
+                {
+                    var tex = tmpTextures[key];
+                    SendRenderTexture(tex);
+                }
                 foreach (var p in plugins)
                 {
                     Util.IssuePluginEvent(PluginEntry.Event.Update, p.Value);
