@@ -6,6 +6,7 @@ using ResoniteModLoader;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Xml.Linq;
 using UnityEngine;
 using UnityEngine.Rendering.PostProcessing;
 using UnityFrooxEngineRunner;
@@ -28,6 +29,9 @@ namespace ResoSpout
         static Dictionary<string, UnityEngine.Texture2D> sharedTextures = new Dictionary<string, UnityEngine.Texture2D>();
         static Dictionary<string, UnityEngine.RenderTexture> tmpTextures = new Dictionary<string, UnityEngine.RenderTexture>();
 
+        static IntPtr _receiverPlugin;
+        static UnityEngine.Texture2D recieveTexture;
+
         public override void OnEngineInit()
         {
             Harmony harmony = new Harmony("dev.kokoa.resospout");
@@ -36,10 +40,14 @@ namespace ResoSpout
             Engine.Current.RunPostInit(() =>
             {
                 Msg("RunPostInit");
+                _receiverPlugin = PluginEntry.CreateReceiver("OBS");
+
+
                 Engine.Current.WorldManager.WorldAdded += (World w) =>
                 {
                     Msg("world focused");
                 };
+
             });
         }
 
@@ -157,7 +165,7 @@ namespace ResoSpout
                 UnityEngine.RenderTexture tempRenderTexture = null;
                 if(tmpTextures.ContainsKey(getNameFromTextureResolution(tmpCameraRenderTexture.width, tmpCameraRenderTexture.height)))
                 {
-                    Msg(cam.targetTexture.width + "x" + cam.targetTexture.height + " already exists");
+                    // Msg(cam.targetTexture.width + "x" + cam.targetTexture.height + " already exists");
                     tempRenderTexture = tmpTextures[getNameFromTextureResolution(tmpCameraRenderTexture.width, tmpCameraRenderTexture.height)];
                 } else
                 {
@@ -184,13 +192,43 @@ namespace ResoSpout
                 RenderHelper.BeginRenderContext(_prevContext.Value);
             }
 
+
             [HarmonyPatch(typeof(PostProcessLayer), "OnRenderImage")]
             [HarmonyPrefix]
-            static void _postfix(PostProcessLayer __instance, UnityEngine.RenderTexture src, UnityEngine.RenderTexture dst)
+            static bool _postfix(PostProcessLayer __instance, UnityEngine.RenderTexture src, UnityEngine.RenderTexture dst)
             {
+                if (_receiverPlugin != System.IntPtr.Zero)
+                {
+                    Util.IssuePluginEvent(PluginEntry.Event.Update, _receiverPlugin);
+
+                    var ptr = PluginEntry.GetTexturePointer(_receiverPlugin);
+                    var width = PluginEntry.GetTextureWidth(_receiverPlugin);
+                    var height = PluginEntry.GetTextureHeight(_receiverPlugin);
+
+
+                    if (recieveTexture == null)
+                    {
+                        recieveTexture = UnityEngine.Texture2D.CreateExternalTexture(width, height, UnityEngine.TextureFormat.R8, false, false, ptr);
+                        recieveTexture.hideFlags = HideFlags.DontSave;
+                    }
+                    else
+                    {
+                        recieveTexture.UpdateExternalTexture(ptr);
+                    }
+
+                    if(dst.height == 2049)
+                    {
+                        Graphics.Blit(recieveTexture, dst, new Vector2(1.0f, -1.0f), new Vector2(0.0f, 1.0f));
+                        return false;
+                    }
+                }
+
+
+
+
                 if (!allowedHeight.Contains(src.height))
                 {
-                    return;
+                    return true;
                 }
                 // Msg("OnRenderImage");
                 var key = getNameFromTextureResolution(src.width, src.height);
@@ -199,10 +237,12 @@ namespace ResoSpout
                     var tex = tmpTextures[key];
                     SendRenderTexture(tex);
                 }
+
                 foreach (var p in plugins)
                 {
                     Util.IssuePluginEvent(PluginEntry.Event.Update, p.Value);
                 }
+                return true;
             }
         }
     }
