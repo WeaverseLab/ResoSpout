@@ -7,7 +7,7 @@ using UnityEngine.Rendering;
 namespace ResoSpout
 {
     // Internal utilities
-    static class Util
+    static class SpoutUtil
     {
         internal static void Destroy(Object obj)
         {
