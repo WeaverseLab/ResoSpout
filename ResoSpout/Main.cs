@@ -41,9 +41,9 @@ namespace ResoSpout
             Engine.Current.RunPostInit(() =>
             {
                 Msg("RunPostInit");
-                GetOrCreateReceiverPlugin("OBS1", 721); 
-                GetOrCreateReceiverPlugin("OBS2", 722);
-                GetOrCreateReceiverPlugin("OBS3", 723);
+                //GetOrCreateReceiverPlugin("OBS1", 721); 
+                //GetOrCreateReceiverPlugin("OBS2", 722);
+                //GetOrCreateReceiverPlugin("OBS3", 723);
                 Engine.Current.WorldManager.WorldAdded += (World w) =>
                 {
                     Msg("world focused");
@@ -221,6 +221,7 @@ namespace ResoSpout
                     }
                 }
 
+                // Msg(src.height);
                 if (!allowedSenderHeight.Contains(src.height))
                 {
                     return true;
