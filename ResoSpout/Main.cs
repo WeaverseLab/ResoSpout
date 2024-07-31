@@ -41,9 +41,9 @@ namespace ResoSpout
             Engine.Current.RunPostInit(() =>
             {
                 Msg("RunPostInit");
-                GetOrCreateReceiverPlugin("OBS1", 721); 
-                GetOrCreateReceiverPlugin("OBS2", 722);
-                GetOrCreateReceiverPlugin("OBS3", 723);
+                GetOrCreateReceiverPlugin("Cam1", 2161); 
+                GetOrCreateReceiverPlugin("Cam2", 2162);
+                GetOrCreateReceiverPlugin("Cam3", 2163);
                 Engine.Current.WorldManager.WorldAdded += (World w) =>
                 {
                     Msg("world focused");
@@ -52,26 +52,26 @@ namespace ResoSpout
 
         }
 
-        static IntPtr GetOrCreateSenderPlugin(int width, int height)
-        {
-            string key = Util.getNameFromTextureResolution(width, height);
+        //static IntPtr GetOrCreateSenderPlugin(int width, int height)
+        //{
+        //    string key = Util.getNameFromTextureResolution(width, height);
 
-            if (!senderPlugins.ContainsKey(key))
-            {
-                Msg($"Creating new sender plugin for resolution: {key}");
-                IntPtr plugin = PluginEntry.CreateSender(key, width, height);
-                if (plugin == IntPtr.Zero)
-                {
-                    Msg("Failed to create Spout sender");
-                    return IntPtr.Zero;
-                }
+        //    if (!senderPlugins.ContainsKey(key))
+        //    {
+        //        Msg($"Creating new sender plugin for resolution: {key}");
+        //        IntPtr plugin = PluginEntry.CreateSender(key, width, height);
+        //        if (plugin == IntPtr.Zero)
+        //        {
+        //            Msg("Failed to create Spout sender");
+        //            return IntPtr.Zero;
+        //        }
 
-                senderPlugins.Add(key, plugin);
-                Msg($"Created new sender plugin for resolution: {key}");
-            }
+        //        senderPlugins.Add(key, plugin);
+        //        Msg($"Created new sender plugin for resolution: {key}");
+        //    }
 
-            return senderPlugins[key];
-        }
+        //    return senderPlugins[key];
+        //}
 
         static IntPtr GetOrCreateReceiverPlugin(string key, int height)
         {
@@ -92,97 +92,97 @@ namespace ResoSpout
             return recieverPlugins[key];
         }
 
-        static UnityEngine.Texture2D GetOrCreateSharedTexture(IntPtr plugin)
-        {
-            if (plugin == IntPtr.Zero)
-            {
-                return null;
-            }
+        //static UnityEngine.Texture2D GetOrCreateSharedTexture(IntPtr plugin)
+        //{
+        //    if (plugin == IntPtr.Zero)
+        //    {
+        //        return null;
+        //    }
 
-            // get key from plugins
-            string key = senderPlugins.FirstOrDefault(x => x.Value == plugin).Key;
+        //    // get key from plugins
+        //    string key = senderPlugins.FirstOrDefault(x => x.Value == plugin).Key;
 
-            if (!sharedTextures.ContainsKey(key))
-            {
-                var ptr = PluginEntry.GetTexturePointer(plugin);
-                if (ptr != IntPtr.Zero)
-                {
-                    UnityEngine.Texture2D sharedTexture = UnityEngine.Texture2D.CreateExternalTexture(
-                        PluginEntry.GetTextureWidth(plugin),
-                        PluginEntry.GetTextureHeight(plugin),
-                        UnityEngine.TextureFormat.ARGB32, false, false, ptr
-                    );
-                    sharedTexture.hideFlags = HideFlags.DontSave;
-                    sharedTextures.Add(key, sharedTexture);
-                    Msg(key + " texture created");
-                }
-            }
+        //    if (!sharedTextures.ContainsKey(key))
+        //    {
+        //        var ptr = PluginEntry.GetTexturePointer(plugin);
+        //        if (ptr != IntPtr.Zero)
+        //        {
+        //            UnityEngine.Texture2D sharedTexture = UnityEngine.Texture2D.CreateExternalTexture(
+        //                PluginEntry.GetTextureWidth(plugin),
+        //                PluginEntry.GetTextureHeight(plugin),
+        //                UnityEngine.TextureFormat.ARGB32, false, false, ptr
+        //            );
+        //            sharedTexture.hideFlags = HideFlags.DontSave;
+        //            sharedTextures.Add(key, sharedTexture);
+        //            Msg(key + " texture created");
+        //        }
+        //    }
 
-            return sharedTextures[key];
-        }
+        //    return sharedTextures[key];
+        //}
 
         [HarmonyPatch]
         class CameraPatch
         {
-            static void SendRenderTexture(UnityEngine.RenderTexture source)
-            {
-                IntPtr plugin = GetOrCreateSenderPlugin(source.width, source.height);
-                SpoutUtil.IssuePluginEvent(PluginEntry.Event.Update, plugin);
-                UnityEngine.Texture2D sharedTexture = GetOrCreateSharedTexture(plugin);
+            //static void SendRenderTexture(UnityEngine.RenderTexture source)
+            //{
+            //    IntPtr plugin = GetOrCreateSenderPlugin(source.width, source.height);
+            //    SpoutUtil.IssuePluginEvent(PluginEntry.Event.Update, plugin);
+            //    UnityEngine.Texture2D sharedTexture = GetOrCreateSharedTexture(plugin);
 
-                if (plugin == IntPtr.Zero || sharedTexture == null)
-                {
-                    Msg("Spout not ready or sharedTexture is null");
-                    return;
-                }
+            //    if (plugin == IntPtr.Zero || sharedTexture == null)
+            //    {
+            //        Msg("Spout not ready or sharedTexture is null");
+            //        return;
+            //    }
 
-                var tempRT = UnityEngine.RenderTexture.GetTemporary(sharedTexture.width, sharedTexture.height);
-                Graphics.Blit(source, tempRT, new Vector2(1.0f, -1.0f), new Vector2(0.0f, 1.0f));
-                Graphics.CopyTexture(tempRT, sharedTexture);
-                UnityEngine.RenderTexture.ReleaseTemporary(tempRT);
-            }
+            //    var tempRT = UnityEngine.RenderTexture.GetTemporary(sharedTexture.width, sharedTexture.height);
+            //    Graphics.Blit(source, tempRT, new Vector2(1.0f, -1.0f), new Vector2(0.0f, 1.0f));
+            //    Graphics.CopyTexture(tempRT, sharedTexture);
+            //    UnityEngine.RenderTexture.ReleaseTemporary(tempRT);
+            //}
 
-            [HarmonyPatch(typeof(CameraRenderEx), "OnPreCull")]
-            [HarmonyPostfix]
-            static void _prefix(CameraRenderEx __instance)
-            {
-                var cam = __instance.Camera;
+            //[HarmonyPatch(typeof(CameraRenderEx), "OnPreCull")]
+            //[HarmonyPostfix]
+            //static void _prefix(CameraRenderEx __instance)
+            //{
+            //    var cam = __instance.Camera;
 
-                if (!allowedSenderHeight.Contains(cam.targetTexture.height))
-                {
-                    return;
-                }
+            //    if (!allowedSenderHeight.Contains(cam.targetTexture.height))
+            //    {
+            //        return;
+            //    }
 
-                if (cam.enabled == false)
-                {
-                    return;
-                }
+            //    if (cam.enabled == false)
+            //    {
+            //        return;
+            //    }
 
-                var _prevContext = RenderHelper.CurrentRenderingContext;
-                RenderHelper.BeginRenderContext(RenderingContext.RenderToAsset);
+            //    var _prevContext = RenderHelper.CurrentRenderingContext;
+            //    RenderHelper.BeginRenderContext(RenderingContext.RenderToAsset);
                 
-                var tmpCameraRenderTexture = cam.targetTexture;
+            //    var tmpCameraRenderTexture = cam.targetTexture;
 
-                UnityEngine.RenderTexture tempRenderTexture = null;
-                if(tmpTextures.ContainsKey(Util.getNameFromTextureResolution(tmpCameraRenderTexture.width, tmpCameraRenderTexture.height)))
-                {
-                    // Msg(cam.targetTexture.width + "x" + cam.targetTexture.height + " already exists");
-                    tempRenderTexture = tmpTextures[Util.getNameFromTextureResolution(tmpCameraRenderTexture.width, tmpCameraRenderTexture.height)];
-                } else
-                {
-                    Msg("create new render texture " + Util.getNameFromTextureResolution(tmpCameraRenderTexture.width, tmpCameraRenderTexture.height));
-                    tempRenderTexture = UnityEngine.RenderTexture.GetTemporary(tmpCameraRenderTexture.width, tmpCameraRenderTexture.height, 24);
-                    tmpTextures.Add(Util.getNameFromTextureResolution(tempRenderTexture.width, tempRenderTexture.height), tempRenderTexture);
-                }
+            //    UnityEngine.RenderTexture tempRenderTexture = null;
+            //    if(tmpTextures.ContainsKey(Util.getNameFromTextureResolution(tmpCameraRenderTexture.width, tmpCameraRenderTexture.height)))
+            //    {
+            //        // Msg(cam.targetTexture.width + "x" + cam.targetTexture.height + " already exists");
+            //        tempRenderTexture = tmpTextures[Util.getNameFromTextureResolution(tmpCameraRenderTexture.width, tmpCameraRenderTexture.height)];
+            //    } else
+            //    {
+            //        Msg("create new render texture " + Util.getNameFromTextureResolution(tmpCameraRenderTexture.width, tmpCameraRenderTexture.height));
+            //        tempRenderTexture = UnityEngine.RenderTexture.GetTemporary(tmpCameraRenderTexture.width, tmpCameraRenderTexture.height, 24);
+            //        tmpTextures.Add(Util.getNameFromTextureResolution(tempRenderTexture.width, tempRenderTexture.height), tempRenderTexture);
+            //    }
                 
-                cam.targetTexture = tempRenderTexture;
-                cam.nearClipPlane = 0.01f;
-                cam.Render();
+            //    cam.targetTexture = tempRenderTexture;
+            //    cam.nearClipPlane = 0.01f;
+            //    cam.Render();
 
-                cam.targetTexture = tmpCameraRenderTexture;
+            //    cam.targetTexture = tmpCameraRenderTexture;
 
-                RenderHelper.BeginRenderContext(_prevContext.Value);
-            }
+            //    RenderHelper.BeginRenderContext(_prevContext.Value);
+            //}
 
 
             [HarmonyPatch(typeof(PostProcessLayer), "OnRenderImage")]
@@ -221,22 +221,22 @@ namespace ResoSpout
                     }
                 }
 
-                if (!allowedSenderHeight.Contains(src.height))
-                {
-                    return true;
-                }
+                //if (!allowedSenderHeight.Contains(src.height))
+                //{
+                //    return true;
+                //}
 
-                var key = Util.getNameFromTextureResolution(src.width, src.height);
-                if (tmpTextures.ContainsKey(key))
-                {
-                    var tex = tmpTextures[key];
-                    SendRenderTexture(tex);
-                }
+                //var key = Util.getNameFromTextureResolution(src.width, src.height);
+                //if (tmpTextures.ContainsKey(key))
+                //{
+                //    var tex = tmpTextures[key];
+                //    SendRenderTexture(tex);
+                //}
 
-                foreach (var p in senderPlugins)
-                {
-                    SpoutUtil.IssuePluginEvent(PluginEntry.Event.Update, p.Value);
-                }
+                //foreach (var p in senderPlugins)
+                //{
+                //    SpoutUtil.IssuePluginEvent(PluginEntry.Event.Update, p.Value);
+                //}
                 return true;
             }
         }
