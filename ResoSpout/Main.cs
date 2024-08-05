@@ -20,8 +20,7 @@ namespace ResoSpout
         public override string Version => "0.0.1";
         public override string Link => "https://github.com/rassi0429/";
 
-        static UnityEngine.Vector3 _rot;
-        static int[] allowedHeight = { 1025, 1026, 1027 };
+        static int[] allowedHeight = { 721, 722, 723, 724 };
 
         // Separate dictionaries for plugins and shared textures
         static Dictionary<string, IntPtr> plugins = new Dictionary<string, IntPtr>();
@@ -124,66 +123,6 @@ namespace ResoSpout
                 UnityEngine.RenderTexture.ReleaseTemporary(tempRT);
             }
 
-            [HarmonyPatch(typeof(CameraRenderEx), "OnPreCull")]
-            [HarmonyPostfix]
-            static void _prefix(CameraRenderEx __instance)
-            {
-                var cam = __instance.Camera;
-
-                if (!allowedHeight.Contains(cam.targetTexture.height))
-                {
-                    return;
-                }
-
-                if (cam.enabled == false)
-                {
-                    return;
-                }
-
-                var gameObject = cam.gameObject;
-                var tmpRotation = gameObject.transform.rotation;
-
-                _rot += new UnityEngine.Vector3(0.0f, 0.1f, 0.0f);
-
-                // gameObject.transform.rotation = UnityEngine.Quaternion.Euler(_rot);
-
-                var _prevContext = RenderHelper.CurrentRenderingContext;
-                RenderHelper.BeginRenderContext(RenderingContext.RenderToAsset);
-                
-                var tmpCameraRenderTexture = cam.targetTexture;
-
-
-
-                UnityEngine.RenderTexture tempRenderTexture = null;
-                if(tmpTextures.ContainsKey(getNameFromTextureResolution(tmpCameraRenderTexture.width, tmpCameraRenderTexture.height)))
-                {
-                    Msg(cam.targetTexture.width + "x" + cam.targetTexture.height + " already exists");
-                    tempRenderTexture = tmpTextures[getNameFromTextureResolution(tmpCameraRenderTexture.width, tmpCameraRenderTexture.height)];
-                } else
-                {
-                    Msg("create new render texture " + getNameFromTextureResolution(tmpCameraRenderTexture.width, tmpCameraRenderTexture.height));
-                    tempRenderTexture = UnityEngine.RenderTexture.GetTemporary(tmpCameraRenderTexture.width, tmpCameraRenderTexture.height, 24);
-                    tmpTextures.Add(getNameFromTextureResolution(tempRenderTexture.width, tempRenderTexture.height), tempRenderTexture);
-                }
-                
-                cam.targetTexture = tempRenderTexture;
-                cam.nearClipPlane = 0.01f;
-                cam.Render();
-
-                // Msg("send render textures");
-                // SendRenderTexture(tempRenderTexture);
-
-                gameObject.transform.rotation = tmpRotation;
-                cam.targetTexture = tmpCameraRenderTexture;
-
-
-                // Msg("release temp (nothing)");
-                // UnityEngine.RenderTexture.ReleaseTemporary(tempRenderTexture);
-
-                // Msg("prev context");
-                RenderHelper.BeginRenderContext(_prevContext.Value);
-            }
-
             [HarmonyPatch(typeof(PostProcessLayer), "OnRenderImage")]
             [HarmonyPrefix]
             static void _postfix(PostProcessLayer __instance, UnityEngine.RenderTexture src, UnityEngine.RenderTexture dst)
@@ -193,12 +132,10 @@ namespace ResoSpout
                     return;
                 }
                 // Msg("OnRenderImage");
-                var key = getNameFromTextureResolution(src.width, src.height);
-                if (tmpTextures.ContainsKey(key))
-                {
-                    var tex = tmpTextures[key];
-                    SendRenderTexture(tex);
-                }
+
+                SendRenderTexture(src);
+                Graphics.Blit(src, dst);
+
                 foreach (var p in plugins)
                 {
                     Util.IssuePluginEvent(PluginEntry.Event.Update, p.Value);
