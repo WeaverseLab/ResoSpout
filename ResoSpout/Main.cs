@@ -22,12 +22,13 @@ namespace ResoSpout
         public override string Version => "0.0.1";
         public override string Link => "https://github.com/rassi0429/";
 
-        static int[] allowedSenderHeight = { 1081, 1082, 1083 };
+        public static bool isDone = false;
 
-        // Separate dictionaries for plugins and shared textures
-        static Dictionary<string, IntPtr> senderPlugins = new Dictionary<string, IntPtr>();
-        static Dictionary<string, UnityEngine.Texture2D> sharedTextures = new Dictionary<string, UnityEngine.Texture2D>();
-        static Dictionary<string, UnityEngine.RenderTexture> tmpTextures = new Dictionary<string, UnityEngine.RenderTexture>();
+        public static int updateCount = 0;
+
+        public static int SIZE = 512;
+        public static int BATCH_SIZE = 32;
+
 
         static Dictionary<string, IntPtr> recieverPlugins = new Dictionary<string, IntPtr>();
         static Dictionary<string, UnityEngine.Texture2D> recieverTextures = new Dictionary<string, UnityEngine.Texture2D>();
@@ -41,36 +42,13 @@ namespace ResoSpout
             Engine.Current.RunPostInit(() =>
             {
                 Msg("RunPostInit");
-                GetOrCreateReceiverPlugin("OBS1", 721); 
-                GetOrCreateReceiverPlugin("OBS2", 722);
-                GetOrCreateReceiverPlugin("OBS3", 723);
+                GetOrCreateReceiverPlugin("point", 500); 
                 Engine.Current.WorldManager.WorldAdded += (World w) =>
                 {
                     Msg("world focused");
                 };
             });
 
-        }
-
-        static IntPtr GetOrCreateSenderPlugin(int width, int height)
-        {
-            string key = Util.getNameFromTextureResolution(width, height);
-
-            if (!senderPlugins.ContainsKey(key))
-            {
-                Msg($"Creating new sender plugin for resolution: {key}");
-                IntPtr plugin = PluginEntry.CreateSender(key, width, height);
-                if (plugin == IntPtr.Zero)
-                {
-                    Msg("Failed to create Spout sender");
-                    return IntPtr.Zero;
-                }
-
-                senderPlugins.Add(key, plugin);
-                Msg($"Created new sender plugin for resolution: {key}");
-            }
-
-            return senderPlugins[key];
         }
 
         static IntPtr GetOrCreateReceiverPlugin(string key, int height)
@@ -92,99 +70,30 @@ namespace ResoSpout
             return recieverPlugins[key];
         }
 
-        static UnityEngine.Texture2D GetOrCreateSharedTexture(IntPtr plugin)
+        static UnityEngine.Texture2D createReadabeTexture2D(UnityEngine.Texture2D texture2d)
         {
-            if (plugin == IntPtr.Zero)
-            {
-                return null;
-            }
+            UnityEngine.RenderTexture renderTexture = UnityEngine.RenderTexture.GetTemporary(
+                        texture2d.width,
+                        texture2d.height,
+                        0,
+                        RenderTextureFormat.Default,
+                        RenderTextureReadWrite.Linear);
 
-            // get key from plugins
-            string key = senderPlugins.FirstOrDefault(x => x.Value == plugin).Key;
-
-            if (!sharedTextures.ContainsKey(key))
-            {
-                var ptr = PluginEntry.GetTexturePointer(plugin);
-                if (ptr != IntPtr.Zero)
-                {
-                    UnityEngine.Texture2D sharedTexture = UnityEngine.Texture2D.CreateExternalTexture(
-                        PluginEntry.GetTextureWidth(plugin),
-                        PluginEntry.GetTextureHeight(plugin),
-                        UnityEngine.TextureFormat.ARGB32, false, false, ptr
-                    );
-                    sharedTexture.hideFlags = HideFlags.DontSave;
-                    sharedTextures.Add(key, sharedTexture);
-                    Msg(key + " texture created");
-                }
-            }
-
-            return sharedTextures[key];
+            Graphics.Blit(texture2d, renderTexture);
+            UnityEngine.RenderTexture previous = UnityEngine.RenderTexture.active;
+            UnityEngine.RenderTexture.active = renderTexture;
+            UnityEngine.Texture2D readableTextur2D = new UnityEngine.Texture2D(texture2d.width, texture2d.height);
+            readableTextur2D.ReadPixels(new Rect(0, 0, renderTexture.width, renderTexture.height), 0, 0);
+            readableTextur2D.Apply();
+            UnityEngine.RenderTexture.active = previous;
+            UnityEngine.RenderTexture.ReleaseTemporary(renderTexture);
+            return readableTextur2D;
         }
+
 
         [HarmonyPatch]
         class CameraPatch
         {
-            static void SendRenderTexture(UnityEngine.RenderTexture source)
-            {
-                IntPtr plugin = GetOrCreateSenderPlugin(source.width, source.height);
-                SpoutUtil.IssuePluginEvent(PluginEntry.Event.Update, plugin);
-                UnityEngine.Texture2D sharedTexture = GetOrCreateSharedTexture(plugin);
-
-                if (plugin == IntPtr.Zero || sharedTexture == null)
-                {
-                    Msg("Spout not ready or sharedTexture is null");
-                    return;
-                }
-
-                var tempRT = UnityEngine.RenderTexture.GetTemporary(sharedTexture.width, sharedTexture.height);
-                Graphics.Blit(source, tempRT, new Vector2(1.0f, -1.0f), new Vector2(0.0f, 1.0f));
-                Graphics.CopyTexture(tempRT, sharedTexture);
-                UnityEngine.RenderTexture.ReleaseTemporary(tempRT);
-            }
-
-            [HarmonyPatch(typeof(CameraRenderEx), "OnPreCull")]
-            [HarmonyPostfix]
-            static void _prefix(CameraRenderEx __instance)
-            {
-                var cam = __instance.Camera;
-
-                if (!allowedSenderHeight.Contains(cam.targetTexture.height))
-                {
-                    return;
-                }
-
-                if (cam.enabled == false)
-                {
-                    return;
-                }
-
-                var _prevContext = RenderHelper.CurrentRenderingContext;
-                RenderHelper.BeginRenderContext(RenderingContext.RenderToAsset);
-                
-                var tmpCameraRenderTexture = cam.targetTexture;
-
-                UnityEngine.RenderTexture tempRenderTexture = null;
-                if(tmpTextures.ContainsKey(Util.getNameFromTextureResolution(tmpCameraRenderTexture.width, tmpCameraRenderTexture.height)))
-                {
-                    // Msg(cam.targetTexture.width + "x" + cam.targetTexture.height + " already exists");
-                    tempRenderTexture = tmpTextures[Util.getNameFromTextureResolution(tmpCameraRenderTexture.width, tmpCameraRenderTexture.height)];
-                } else
-                {
-                    Msg("create new render texture " + Util.getNameFromTextureResolution(tmpCameraRenderTexture.width, tmpCameraRenderTexture.height));
-                    tempRenderTexture = UnityEngine.RenderTexture.GetTemporary(tmpCameraRenderTexture.width, tmpCameraRenderTexture.height, 24);
-                    tmpTextures.Add(Util.getNameFromTextureResolution(tempRenderTexture.width, tempRenderTexture.height), tempRenderTexture);
-                }
-                
-                cam.targetTexture = tempRenderTexture;
-                cam.nearClipPlane = 0.01f;
-                cam.Render();
-
-                cam.targetTexture = tmpCameraRenderTexture;
-
-                RenderHelper.BeginRenderContext(_prevContext.Value);
-            }
-
-
             [HarmonyPatch(typeof(PostProcessLayer), "OnRenderImage")]
             [HarmonyPrefix]
             static bool prefix(UnityEngine.RenderTexture src, UnityEngine.RenderTexture dst)
@@ -207,7 +116,7 @@ namespace ResoSpout
                             recieverTextures[_reciverPl.Key].UpdateExternalTexture(ptr);
                         } else
                         {
-                            var tex = UnityEngine.Texture2D.CreateExternalTexture(width, height, UnityEngine.TextureFormat.R8, false, false, ptr);
+                            var tex = UnityEngine.Texture2D.CreateExternalTexture(width, height, UnityEngine.TextureFormat.RGBA32, false, false, ptr);
                             tex.hideFlags = HideFlags.DontSave;
                             recieverTextures.Add(_reciverPl.Key, tex);
                         }
@@ -221,24 +130,101 @@ namespace ResoSpout
                     }
                 }
 
-                if (!allowedSenderHeight.Contains(src.height))
-                {
-                    return true;
-                }
-
-                var key = Util.getNameFromTextureResolution(src.width, src.height);
-                if (tmpTextures.ContainsKey(key))
-                {
-                    var tex = tmpTextures[key];
-                    SendRenderTexture(tex);
-                }
-
-                foreach (var p in senderPlugins)
-                {
-                    SpoutUtil.IssuePluginEvent(PluginEntry.Event.Update, p.Value);
-                }
                 return true;
             }
         }
+
+
+        [HarmonyPatch(typeof(FrooxEngine.Engine), "RunUpdateLoop")]
+        class Patch
+        {
+            static bool Prefix(FrooxEngine.Engine __instance)
+            {
+                if (__instance.WorldManager.FocusedWorld == null) return true;
+
+                __instance.WorldManager.FocusedWorld.RunSynchronously(() =>
+                {
+
+                    var pointMesh = __instance.WorldManager.FocusedWorld.RootSlot.FindChildInHierarchy("#PointMesh");
+                    var pointMeshComponent = pointMesh.GetComponent<FrooxEngine.PointMesh>();
+
+                    var t = __instance.WorldManager.FocusedWorld.Time.WorldTimeFloat;
+
+                    updateCount++;
+
+                    if (isDone)
+                    {
+                        var updateX = updateCount % (SIZE / BATCH_SIZE);
+                        var x = updateX;
+                        //if (updateCount % 100 != 0)
+                        //{
+                        //    return;
+                        //}
+
+                        // var colorArray2 = new Elements.Core.color[SIZE * SIZE];
+                        //for (int x = 0; x < SIZE; x++)
+                        //{
+                        var tex = createReadabeTexture2D(recieverTextures["point"]);
+                        // Msg(tex.graphicsFormat); // R8G8B8A8_SRGB
+                        var colorChunkArray = new Elements.Core.color[SIZE * BATCH_SIZE];
+                        for (int _x = 0; _x < BATCH_SIZE; _x++)
+                        {
+                            for (int y = 0; y < SIZE; y++)
+                            {
+                                
+                                var c = tex.GetPixel(x * BATCH_SIZE + _x, y);
+                                //Msg(c.r + " " + c.g + " " + c.b + " " + c.a);
+
+                                colorChunkArray[_x * SIZE + y] = 
+                                new Elements.Core.color(c.r, c.g ,c.b);
+                            }
+                        }
+                        var _c = tex.GetPixel(200, 200);
+                        
+                        // Msg(_c.r + " " + _c.g + " " + _c.b);
+                        pointMeshComponent.Colors.Write(colorChunkArray, x * SIZE * BATCH_SIZE);
+                        //}
+                        return;
+                    };
+
+
+                    Msg("PointMeshComponent : " + pointMeshComponent);
+                    pointMeshComponent.Points.SetSize(SIZE * SIZE);
+                    Msg("point setsize done");
+
+                    var sizeArray = new Elements.Core.float2[SIZE * SIZE];
+                    var colorArray = new Elements.Core.color[SIZE * SIZE];
+                    var rotationArray = new float[SIZE * SIZE];
+                    var pointArray = new Elements.Core.float3[SIZE * SIZE];
+
+                    for (int x = 0; x < SIZE; x++)
+                    {
+                        Msg("x : " + x);
+                        for (int y = 0; y < SIZE; y++)
+                        {
+                            sizeArray[x * SIZE + y] = new Elements.Core.float2(1f, 1f);
+                            colorArray[x * SIZE + y] = new Elements.Core.color((float)x / SIZE, (float)y / SIZE, 0f, 1f);
+                            rotationArray[x * SIZE + y] = 0f;
+                            pointArray[x * SIZE + y] = new Elements.Core.float3(x / 100f, y / 100f, 0);
+                            //pointMeshComponent.Sizes.Write(new Elements.Core.float2(1f, 1f), x * SIZE + y);
+                            //pointMeshComponent.Colors.Write(new Elements.Core.color((float)x / SIZE, (float)y / SIZE, 0f, 1f), x * SIZE + y);
+                            //pointMeshComponent.Rotations.Write(0f, x * SIZE + y);
+                            //pointMeshComponent.Points.Write(new Elements.Core.float3(x / 100f, y/100f, 0), x * SIZE + y);
+                        }
+                    }
+
+                    pointMeshComponent.Sizes.Write(sizeArray, 0);
+                    pointMeshComponent.Colors.Write(colorArray, 0);
+                    pointMeshComponent.Rotations.Write(rotationArray, 0);
+                    pointMeshComponent.Points.Write(pointArray, 0);
+
+                    isDone = true;
+
+                });
+
+                return true;
+            }
+        }
+
     }
 }

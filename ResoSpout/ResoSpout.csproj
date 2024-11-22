@@ -63,6 +63,9 @@
     <Reference Include="Elements.Assets">
       <HintPath>..\..\..\..\..\Program Files (x86)\Steam\steamapps\common\Resonite\Resonite_Data\Managed\Elements.Assets.dll</HintPath>
     </Reference>
+    <Reference Include="Elements.Core">
+      <HintPath>C:\Program Files (x86)\Steam\steamapps\common\Resonite\Resonite_Data\Managed\Elements.Core.dll</HintPath>
+    </Reference>
     <Reference Include="FrooxEngine">
       <HintPath>..\..\..\..\..\Program Files (x86)\Steam\steamapps\common\Resonite\Resonite_Data\Managed\FrooxEngine.dll</HintPath>
     </Reference>
